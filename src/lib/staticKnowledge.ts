@@ -5,9 +5,9 @@ COLLEGE OVERVIEW:
 - Approved by AICTE, UGC; NAAC "A" Grade; NBA accredited for select programs; affiliated with JNTU Anantapur
 - Offers B.Tech, M.Tech, MBA, MCA
 
-DEPARTMENTS / B.TECH SPECIALIZATIONS:
+DEPARTMENTS / B.TECH SPECIALIZATIONS & LEADERSHIP:
 - Computer Science and Engineering (CSE)
-- Artificial Intelligence and Machine Learning (AI & ML)
+- Artificial Intelligence and Machine Learning (AI & ML) — HOD / Chairman (BoS): Dr. C. Siva Balaji Yadav (Associate Professor & Head)
 - Artificial Intelligence and Data Science (AI & DS)
 - CSE – Data Science (CDS)
 - IoT and Cyber Security
