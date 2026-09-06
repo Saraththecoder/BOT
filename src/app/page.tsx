@@ -26,6 +26,7 @@ import {
 import { CgSpinner } from 'react-icons/cg';
 import { ChatMessage, Message } from '@/components/ChatMessage';
 import { SplashScreen } from '@/components/SplashScreen';
+import { VoiceWaveVisualizer } from '@/components/VoiceWaveVisualizer';
 
 const QUICK_ACTIONS = [
   { label: 'Admission process', icon: HiMiniLightBulb, prompt: 'What is the admission process for B.Tech at AITS Tirupati?' },
@@ -44,6 +45,7 @@ export default function Home() {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState('');
+  const [micStream, setMicStream] = useState<MediaStream | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voiceNetworkFailed, setVoiceNetworkFailed] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
@@ -203,6 +205,10 @@ export default function Home() {
       if (recognitionRef.current) {
         try { recognitionRef.current.stop(); } catch (e) {}
       }
+      if (micStream) {
+        micStream.getTracks().forEach(t => t.stop());
+        setMicStream(null);
+      }
       setIsListening(false);
       return;
     }
@@ -210,12 +216,11 @@ export default function Home() {
     if (typeof window === 'undefined') return;
 
     // Request Hardware Mic Permissions First to activate device audio stream
+    let activeStream: MediaStream | null = null;
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        setTimeout(() => {
-          stream.getTracks().forEach(t => t.stop());
-        }, 8000);
+        activeStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        setMicStream(activeStream);
       }
     } catch (micErr) {
       console.warn('Microphone permission warning:', micErr);
@@ -227,6 +232,10 @@ export default function Home() {
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
+      if (activeStream) {
+        activeStream.getTracks().forEach(t => t.stop());
+        setMicStream(null);
+      }
       setVoiceError('Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.');
       return;
     }
@@ -269,6 +278,10 @@ export default function Home() {
 
       recognition.onerror = (event: any) => {
         console.warn('Speech recognition error event:', event.error);
+        if (activeStream) {
+          activeStream.getTracks().forEach(t => t.stop());
+          setMicStream(null);
+        }
         setIsListening(false);
         if (event.error === 'network') {
           setVoiceNetworkFailed(true);
@@ -281,6 +294,10 @@ export default function Home() {
       };
 
       recognition.onend = () => {
+        if (activeStream) {
+          activeStream.getTracks().forEach(t => t.stop());
+          setMicStream(null);
+        }
         setIsListening(false);
         const finalQuery = capturedTextRef.current.trim();
         capturedTextRef.current = '';
@@ -292,6 +309,10 @@ export default function Home() {
       recognition.start();
     } catch (err: any) {
       console.error('Speech recognition exception:', err);
+      if (activeStream) {
+        activeStream.getTracks().forEach(t => t.stop());
+        setMicStream(null);
+      }
       setIsListening(false);
       setVoiceError('Could not start voice recognition. Please try again.');
     }
@@ -452,6 +473,56 @@ export default function Home() {
             {/* MAIN VIEWPORT CONTAINER */}
             <main ref={heroContainerRef} className="flex-1 flex flex-col items-center justify-between px-3.5 sm:px-4 py-2 sm:py-4 max-w-4xl mx-auto w-full relative z-10 overflow-hidden">
 
+              {/* Dynamic Floating Voice Wave Banner (Visible during Voice Listening / Speech Synthesis) */}
+              <AnimatePresence>
+                {(isListening || isSpeaking) && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -15, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -15, scale: 0.96 }}
+                    className="w-full max-w-xl mx-auto mb-3 px-4 py-2.5 rounded-2xl glass-panel border border-[var(--brand-green)]/60 shadow-xl flex flex-col gap-1.5 z-30 relative overflow-hidden"
+                  >
+                    <div className="flex items-center justify-between gap-3 text-xs font-semibold">
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2.5 h-2.5 rounded-full ${isListening ? 'bg-red-500 animate-ping' : 'bg-amber-500 animate-pulse'}`} />
+                        <span className="text-[var(--text-primary)]">
+                          {isListening ? '🎤 Voice Mode: Listening...' : '🔊 Voice Mode: AITS Bot Speaking...'}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (isListening && recognitionRef.current) {
+                            try { recognitionRef.current.stop(); } catch (e) {}
+                            if (micStream) {
+                              micStream.getTracks().forEach(t => t.stop());
+                              setMicStream(null);
+                            }
+                            setIsListening(false);
+                          }
+                          if (isSpeaking && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+                            window.speechSynthesis.cancel();
+                            setIsSpeaking(false);
+                          }
+                        }}
+                        className="px-2.5 py-0.5 rounded-full bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-red-500 hover:text-white transition-colors text-[11px] font-medium"
+                      >
+                        Stop Audio
+                      </button>
+                    </div>
+
+                    {/* Canvas Wave Visualizer */}
+                    <div className="w-full h-8 relative rounded-lg overflow-hidden bg-black/5 dark:bg-white/5 border border-[var(--border-subtle)]">
+                      <VoiceWaveVisualizer
+                        isActive={isListening || isSpeaking}
+                        mode={isListening ? 'listening' : 'speaking'}
+                        audioStream={micStream}
+                        className="w-full h-full"
+                      />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               {/* ----------------- STATE 1: HERO HUB VIEW ----------------- */}
               {!hasStartedChat && (
                 <motion.div
@@ -505,8 +576,20 @@ export default function Home() {
                   </p>
 
                   {/* Central Voice Button Hub */}
-                  <div className="gsap-animate relative mb-8 sm:mb-10 flex flex-col items-center justify-center z-10">
-                    <div className="relative w-32 h-32 sm:w-36 sm:h-36 flex items-center justify-center">
+                  <div className="gsap-animate relative mb-8 sm:mb-10 flex flex-col items-center justify-center z-10 w-full max-w-md">
+                    <div className="relative w-40 h-40 sm:w-48 sm:h-48 flex items-center justify-center">
+                      {/* Active Morphing Soundwave Canvas Circle */}
+                      {(isListening || isSpeaking) && (
+                        <div className="absolute -inset-6 rounded-full overflow-hidden pointer-events-none opacity-90 transition-opacity duration-300">
+                          <VoiceWaveVisualizer 
+                            isActive={isListening || isSpeaking}
+                            mode={isListening ? 'listening' : 'speaking'}
+                            audioStream={micStream}
+                            className="w-full h-full"
+                          />
+                        </div>
+                      )}
+
                       <div className="absolute inset-0 rounded-full border border-[var(--border-subtle)] animate-pulse-ring" />
                       <div className="absolute inset-3 rounded-full border border-[var(--border-subtle)] animate-pulse-ring" style={{ animationDelay: '1s' }} />
                       <div className="absolute inset-5 rounded-full opacity-70 bg-[var(--bg-hover)]" />
@@ -515,29 +598,42 @@ export default function Home() {
                         onClick={toggleVoiceListen}
                         onMouseMove={handleMagneticMove}
                         onMouseLeave={handleMagneticLeave}
-                        className={`relative z-10 w-20 h-20 sm:w-22 sm:h-22 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 cursor-pointer ${
+                        className={`relative z-10 w-22 h-22 sm:w-26 sm:h-26 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 cursor-pointer ${
                           isListening
-                            ? 'bg-red-500 text-white scale-105 animate-pulse shadow-red-500/40'
+                            ? 'bg-red-500 text-white scale-105 shadow-red-500/50'
+                            : isSpeaking
+                            ? 'bg-amber-500 text-white scale-105 shadow-amber-500/50'
                             : 'bg-[#2b5944] hover:bg-[#224736] text-white hover:scale-105 shadow-[#2b5944]/30'
                         }`}
-                        title={isListening ? 'Listening...' : 'Tap to start talking'}
+                        title={isListening ? 'Listening...' : isSpeaking ? 'Speaking...' : 'Tap to start talking'}
                       >
                         {isListening ? (
-                          <div className="flex items-center gap-1">
-                            <div className="w-1 bg-white animate-bar-1 rounded-full" />
-                            <div className="w-1 bg-white animate-bar-2 rounded-full" />
-                            <div className="w-1 bg-white animate-bar-3 rounded-full" />
-                            <div className="w-1 bg-white animate-bar-4 rounded-full" />
-                          </div>
+                          <HiMicrophone size={38} className="text-white animate-pulse" />
+                        ) : isSpeaking ? (
+                          <HiSpeakerWave size={38} className="text-white animate-bounce" />
                         ) : (
-                          <HiMicrophone size={34} className="text-white" />
+                          <HiMicrophone size={36} className="text-white" />
                         )}
                       </button>
                     </div>
 
+                    {/* Wave Visualizer Horizontal Bar */}
+                    {(isListening || isSpeaking) && (
+                      <div className="w-full max-w-xs h-10 mt-3 rounded-xl overflow-hidden glass-panel border border-[var(--brand-green)]/40 p-1">
+                        <VoiceWaveVisualizer
+                          isActive={isListening || isSpeaking}
+                          mode={isListening ? 'listening' : 'speaking'}
+                          audioStream={micStream}
+                          className="w-full h-full"
+                        />
+                      </div>
+                    )}
+
                     <p className={`text-xs md:text-sm font-medium max-w-md mx-auto mt-3 transition-colors ${voiceError ? 'text-red-500 font-semibold' : 'text-[var(--text-secondary)]'}`}>
                       {isListening 
                         ? (liveTranscript ? `Listening: "${liveTranscript}"` : 'Listening... Speak your question now') 
+                        : isSpeaking
+                        ? 'AITS Bot Speaking Response Aloud...'
                         : (voiceError || 'Tap to start talking')}
                     </p>
 
