@@ -42,6 +42,7 @@ export default function Home() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState('');
   const [voiceError, setVoiceError] = useState<string | null>(null);
@@ -51,6 +52,9 @@ export default function Home() {
   const [sessionId] = useState(() => Math.random().toString(36).substring(7));
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
   const capturedTextRef = useRef('');
   const heroContainerRef = useRef<HTMLDivElement>(null);
 
@@ -195,113 +199,122 @@ export default function Home() {
     }
   };
 
-  // Toggle Hardware-Activated Speech Recognition Dictation
+  // Toggle AI Voice Recording using standard MediaRecorder & Gemini Audio API
   const toggleVoiceListen = async () => {
     setVoiceError(null);
 
-    // Abort any existing recognition session immediately to release Android mic lock
-    if (recognitionRef.current) {
+    // Stop recording if currently recording
+    if (isListening && mediaRecorderRef.current) {
       try {
-        recognitionRef.current.onstart = null;
-        recognitionRef.current.onresult = null;
-        recognitionRef.current.onerror = null;
-        recognitionRef.current.onend = null;
-        recognitionRef.current.abort();
-      } catch (e) {}
-      recognitionRef.current = null;
-    }
-
-    if (isListening) {
-      setIsListening(false);
+        if (mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop();
+        }
+      } catch (e) {
+        console.warn('Error stopping MediaRecorder:', e);
+      }
       return;
     }
 
     if (typeof window === 'undefined') return;
 
-    // Cancel any active speech synthesis output before recording
+    // Stop any active speech synthesis output before recording
     if ('speechSynthesis' in window) {
       try { window.speechSynthesis.cancel(); } catch (e) {}
       setIsSpeaking(false);
     }
 
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      setVoiceError('Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.');
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setVoiceError('Voice recording is not supported in this browser.');
       return;
     }
 
-    // 150ms audio focus delay to give Android OS time to unbind TTS / previous audio focus
-    setTimeout(() => {
-      try {
-        const recognition = new SpeechRecognition();
-        recognitionRef.current = recognition;
-        recognition.continuous = false; // Single-phrase mode avoids Chrome network streaming dropouts
-        recognition.interimResults = true;
-        recognition.maxAlternatives = 1;
-        recognition.lang = 'en-US';
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      audioChunksRef.current = [];
 
-        recognition.onstart = () => {
-          setIsListening(true);
-          setLiveTranscript('');
-          capturedTextRef.current = '';
-          setVoiceNetworkFailed(false);
-        };
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : MediaRecorder.isTypeSupported('audio/mp4')
+        ? 'audio/mp4'
+        : '';
 
-        recognition.onresult = (event: any) => {
-          let interim = '';
-          let final = '';
+      const options = mimeType ? { mimeType } : undefined;
+      const mediaRecorder = new MediaRecorder(stream, options);
+      mediaRecorderRef.current = mediaRecorder;
 
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            const transcriptChunk = event.results[i][0].transcript;
-            if (event.results[i].isFinal) {
-              final += transcriptChunk + ' ';
-            } else {
-              interim += transcriptChunk;
-            }
-          }
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
 
-          const fullDisplay = (capturedTextRef.current + ' ' + final + interim).trim();
-          if (final) {
-            capturedTextRef.current = (capturedTextRef.current + ' ' + final).trim();
-          }
-
-          setLiveTranscript(fullDisplay);
-          setInput(fullDisplay);
-        };
-
-        recognition.onerror = (event: any) => {
-          console.warn('Speech recognition error event:', event.error);
-          setIsListening(false);
-          if (event.error === 'network') {
-            setVoiceNetworkFailed(true);
-            setVoiceError('Chrome speech network blocked by ad-blocker/VPN. Pause ad-blocker or tap mic to retry!');
-          } else if (event.error === 'not-allowed') {
-            setVoiceError('Microphone permission needed. Allow mic access in browser address bar.');
-          } else if (event.error === 'audio-capture') {
-            setVoiceError('Microphone is busy by another app or voice keyboard. Please close active audio and tap mic.');
-          } else if (event.error !== 'aborted') {
-            setVoiceError(`Voice note: ${event.error}. Please tap mic and speak again.`);
-          }
-        };
-
-        recognition.onend = () => {
-          setIsListening(false);
-          const finalQuery = capturedTextRef.current.trim();
-          capturedTextRef.current = '';
-          if (finalQuery) {
-            handleSend(finalQuery, true);
-          }
-        };
-
-        recognition.start();
-      } catch (err: any) {
-        console.error('Speech recognition exception:', err);
+      mediaRecorder.onstop = async () => {
         setIsListening(false);
-        setVoiceError('Could not start voice recognition. Please try again.');
+        // Turn off browser microphone hardware light immediately
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+          mediaStreamRef.current = null;
+        }
+
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: mediaRecorder.mimeType || 'audio/webm',
+        });
+
+        if (audioBlob.size < 500) {
+          return;
+        }
+
+        setIsTranscribing(true);
+        try {
+          const reader = new FileReader();
+          reader.readAsDataURL(audioBlob);
+          reader.onloadend = async () => {
+            const base64Data = (reader.result as string).split(',')[1];
+            if (!base64Data) {
+              setIsTranscribing(false);
+              return;
+            }
+
+            const res = await fetch('/api/transcribe', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                audio: base64Data,
+                mimeType: audioBlob.type,
+              }),
+            });
+
+            const data = await res.json();
+            setIsTranscribing(false);
+
+            if (data.transcript && data.transcript.trim()) {
+              const query = data.transcript.trim();
+              setInput(query);
+              handleSend(query, true);
+            } else {
+              setVoiceError('No clear speech detected. Please tap mic and speak again.');
+            }
+          };
+        } catch (err: any) {
+          console.error('Voice transcription failed:', err);
+          setIsTranscribing(false);
+          setVoiceError('Voice processing failed. Please try typing your query.');
+        }
+      };
+
+      mediaRecorder.start(200);
+      setIsListening(true);
+      setLiveTranscript('🔴 Recording voice note... Tap mic when finished.');
+    } catch (err: any) {
+      console.error('Microphone access error:', err);
+      setIsListening(false);
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setVoiceError('Microphone permission needed. Please allow mic access in your browser bar.');
+      } else {
+        setVoiceError('Could not access microphone. Please check your browser audio settings.');
       }
-    }, 150);
+    }
   };
 
   const speakLastMessage = () => {
@@ -634,6 +647,34 @@ export default function Home() {
                 </motion.div>
               )}
 
+              {/* Live Voice Status Indicator */}
+              {(isListening || isTranscribing || voiceError) && (
+                <div className="w-full max-w-2xl px-4 py-1.5 mb-1 flex items-center justify-between text-xs rounded-full bg-[var(--bg-card)] border border-[var(--border-subtle)] shadow-xs">
+                  <div className="flex items-center gap-2">
+                    {isListening && (
+                      <>
+                        <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                        <span className="font-semibold text-red-500 animate-pulse">🔴 Recording voice... Tap mic when done</span>
+                      </>
+                    )}
+                    {isTranscribing && (
+                      <>
+                        <CgSpinner size={14} className="animate-spin text-[var(--brand-green)]" />
+                        <span className="font-medium text-[var(--brand-green)]">Transcribing voice with Gemini AI...</span>
+                      </>
+                    )}
+                    {voiceError && !isListening && !isTranscribing && (
+                      <span className="text-amber-500 font-medium">{voiceError}</span>
+                    )}
+                  </div>
+                  {voiceError && (
+                    <button onClick={() => setVoiceError(null)} className="text-[10px] underline text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+                      Dismiss
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* ----------------- PINNED INPUT BAR ----------------- */}
               <form
                 onSubmit={handleSubmit}
@@ -652,25 +693,30 @@ export default function Home() {
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Type a message..."
+                  placeholder={isListening ? "Listening to your voice..." : isTranscribing ? "Transcribing speech..." : "Type a message..."}
                   className="flex-1 bg-transparent border-none outline-none px-2.5 sm:px-3 text-xs sm:text-sm md:text-base text-[var(--text-primary)] placeholder-[var(--text-muted)]"
-                  disabled={isLoading}
+                  disabled={isLoading || isTranscribing}
                 />
 
                 <button
                   type="button"
                   onClick={toggleVoiceListen}
+                  disabled={isTranscribing}
                   className={`p-1.5 sm:p-2 rounded-full transition-colors cursor-pointer mr-1 ${
-                    isListening ? 'bg-red-500 text-white animate-pulse' : 'text-[var(--text-muted)] hover:text-[var(--brand-green)]'
+                    isListening
+                      ? 'bg-red-500 text-white animate-pulse'
+                      : isTranscribing
+                      ? 'bg-amber-500 text-white animate-spin opacity-80'
+                      : 'text-[var(--text-muted)] hover:text-[var(--brand-green)]'
                   }`}
-                  title={isListening ? 'Listening...' : 'Speak query'}
+                  title={isListening ? 'Stop & send voice' : isTranscribing ? 'Transcribing...' : 'Record voice note'}
                 >
-                  <HiMicrophone size={18} />
+                  {isTranscribing ? <CgSpinner size={18} className="animate-spin" /> : <HiMicrophone size={18} />}
                 </button>
 
                 <button
                   type="submit"
-                  disabled={!input.trim() || isLoading}
+                  disabled={!input.trim() || isLoading || isTranscribing}
                   className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-[#2b5944] hover:bg-[#224736] disabled:opacity-30 text-white flex items-center justify-center transition-all cursor-pointer shadow-md shrink-0"
                 >
                   <HiPaperAirplane size={16} />
