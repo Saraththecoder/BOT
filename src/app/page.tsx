@@ -88,19 +88,6 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [hasStartedChat, showSplash]);
 
-  // Magnetic Button Hover Animation
-  const handleMagneticMove = (e: React.MouseEvent<HTMLButtonElement>) => {
-    const btn = e.currentTarget;
-    const rect = btn.getBoundingClientRect();
-    const x = e.clientX - rect.left - rect.width / 2;
-    const y = e.clientY - rect.top - rect.height / 2;
-    gsap.to(btn, { x: x * 0.25, y: y * 0.25, duration: 0.3, ease: 'power2.out' });
-  };
-
-  const handleMagneticLeave = (e: React.MouseEvent<HTMLButtonElement>) => {
-    gsap.to(e.currentTarget, { x: 0, y: 0, duration: 0.6, ease: 'elastic.out(1, 0.4)' });
-  };
-
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -241,22 +228,16 @@ export default function Home() {
                 {hasStartedChat && (
                   <button
                     onClick={resetToHero}
-                    onMouseMove={handleMagneticMove}
-                    onMouseLeave={handleMagneticLeave}
-                    className="hidden sm:flex items-center gap-1.5 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs font-semibold bg-[var(--bg-hover)] text-[var(--brand-green)] hover:bg-[var(--brand-green)] hover:text-white transition-all shadow-xs cursor-pointer"
+                    className="hidden sm:flex items-center gap-1.5 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs font-semibold bg-[var(--bg-hover)] text-[var(--brand-green)] hover:bg-[var(--brand-green)] hover:text-white transition-all duration-200 shadow-xs cursor-pointer active:scale-95"
                   >
                     <HiPlusCircle size={15} />
                     <span>New Chat</span>
                   </button>
                 )}
 
-
-
                 <button
                   onClick={() => setShowInfoModal(!showInfoModal)}
-                  onMouseMove={handleMagneticMove}
-                  onMouseLeave={handleMagneticLeave}
-                  className="p-2 sm:p-2.5 rounded-full border bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--brand-green)] transition-all shadow-xs cursor-pointer flex items-center gap-1.5 text-xs font-medium"
+                  className="p-2 sm:p-2.5 rounded-full border bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--brand-green)] transition-all duration-200 shadow-xs cursor-pointer flex items-center gap-1.5 text-xs font-medium active:scale-95"
                   title="AITS Tirupati Details"
                 >
                   <HiInformationCircle size={16} />
@@ -265,10 +246,10 @@ export default function Home() {
 
                 <button
                   onClick={toggleDarkMode}
-                  className="p-2 sm:p-2.5 rounded-full border bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--brand-green)] transition-all shadow-xs cursor-pointer"
+                  className="p-2 sm:p-2.5 rounded-full border bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--brand-green)] transition-all duration-200 shadow-xs cursor-pointer active:scale-95"
                   title="Toggle Light/Dark Theme"
                 >
-                  {isDarkMode ? <HiSun size={16} /> : <HiMoon size={16} />}
+                  {isDarkMode ? <HiSun size={16} className="text-amber-400" /> : <HiMoon size={16} className="text-emerald-700" />}
                 </button>
 
                 {/* Clean User Profile Pill */}
@@ -339,7 +320,7 @@ export default function Home() {
                     Admissions, EAPCET cutoffs, courses, fees, and campus placements.
                   </p>
 
-                  {/* Central Logo Button Hub */}
+                  {/* Central Radiant 3D Logo Button Hub */}
                   <div className="gsap-animate relative mb-8 sm:mb-10 flex flex-col items-center justify-center z-10">
                     <div className="relative w-32 h-32 sm:w-36 sm:h-36 flex items-center justify-center">
                       <div className="absolute inset-0 rounded-full border border-[var(--border-subtle)] animate-pulse-ring" />
@@ -351,12 +332,14 @@ export default function Home() {
                           const inputEl = document.querySelector('form input[type="text"]') as HTMLInputElement;
                           inputEl?.focus();
                         }}
-                        onMouseMove={handleMagneticMove}
-                        onMouseLeave={handleMagneticLeave}
-                        className="relative z-10 w-20 h-20 sm:w-22 sm:h-22 rounded-full bg-[#2b5944] hover:bg-[#224736] text-white flex items-center justify-center shadow-2xl transition-all duration-300 cursor-pointer hover:scale-105 shadow-[#2b5944]/30"
+                        className="relative z-10 w-24 h-24 sm:w-28 sm:h-28 rounded-full flex items-center justify-center transition-all duration-300 cursor-pointer hover:scale-105 active:scale-95 group"
                         title="Start asking questions"
                       >
-                        <img src="/logo.png" alt="AITS Logo" className="w-11 h-11 object-contain" />
+                        <img 
+                          src="/logo.png" 
+                          alt="AITS Emblem" 
+                          className="w-full h-full object-contain drop-shadow-[0_10px_20px_rgba(43,89,68,0.35)] dark:drop-shadow-[0_10px_25px_rgba(82,157,120,0.45)] group-hover:rotate-3 transition-transform duration-300" 
+                        />
                       </button>
                     </div>
 
@@ -373,11 +356,9 @@ export default function Home() {
                         <button
                           key={idx}
                           onClick={() => handleSend(action.prompt)}
-                          onMouseMove={handleMagneticMove}
-                          onMouseLeave={handleMagneticLeave}
-                          className="flex items-center gap-2 px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-card)]/80 backdrop-blur-md text-[var(--text-primary)] text-[11px] sm:text-xs font-medium shadow-md hover:border-[var(--brand-green)] hover:bg-[var(--brand-green)]/10 hover:shadow-[0_0_15px_rgba(43,89,68,0.15)] transition-all duration-300 cursor-pointer"
+                          className="flex items-center gap-2 px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-card)]/80 backdrop-blur-md text-[var(--text-primary)] text-[11px] sm:text-xs font-medium shadow-md hover:border-[var(--brand-green)] hover:bg-[var(--brand-green)]/10 hover:shadow-[0_0_15px_rgba(43,89,68,0.15)] active:scale-95 transition-all duration-200 cursor-pointer"
                         >
-                          <Icon size={15} className="text-[var(--brand-green)]" />
+                          <Icon size={15} className="text-[var(--brand-green)] shrink-0" />
                           <span>{action.label}</span>
                         </button>
                       );
