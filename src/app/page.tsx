@@ -199,10 +199,19 @@ export default function Home() {
   const toggleVoiceListen = async () => {
     setVoiceError(null);
 
+    // Abort any existing recognition session immediately to release Android mic lock
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.onstart = null;
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onend = null;
+        recognitionRef.current.abort();
+      } catch (e) {}
+      recognitionRef.current = null;
+    }
+
     if (isListening) {
-      if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch (e) {}
-      }
       setIsListening(false);
       return;
     }
@@ -210,8 +219,8 @@ export default function Home() {
     if (typeof window === 'undefined') return;
 
     // Cancel any active speech synthesis output before recording
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window && window.speechSynthesis.speaking) {
-      window.speechSynthesis.cancel();
+    if ('speechSynthesis' in window) {
+      try { window.speechSynthesis.cancel(); } catch (e) {}
       setIsSpeaking(false);
     }
 
@@ -223,70 +232,76 @@ export default function Home() {
       return;
     }
 
-    try {
-      const recognition = new SpeechRecognition();
-      recognitionRef.current = recognition;
-      recognition.continuous = false; // Single-phrase mode avoids Chrome network streaming dropouts
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
+    // 150ms audio focus delay to give Android OS time to unbind TTS / previous audio focus
+    setTimeout(() => {
+      try {
+        const recognition = new SpeechRecognition();
+        recognitionRef.current = recognition;
+        recognition.continuous = false; // Single-phrase mode avoids Chrome network streaming dropouts
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
+        recognition.lang = 'en-US';
 
-      recognition.onstart = () => {
-        setIsListening(true);
-        setLiveTranscript('');
-        capturedTextRef.current = '';
-        setVoiceNetworkFailed(false);
-      };
+        recognition.onstart = () => {
+          setIsListening(true);
+          setLiveTranscript('');
+          capturedTextRef.current = '';
+          setVoiceNetworkFailed(false);
+        };
 
-      recognition.onresult = (event: any) => {
-        let interim = '';
-        let final = '';
+        recognition.onresult = (event: any) => {
+          let interim = '';
+          let final = '';
 
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          const transcriptChunk = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            final += transcriptChunk + ' ';
-          } else {
-            interim += transcriptChunk;
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            const transcriptChunk = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              final += transcriptChunk + ' ';
+            } else {
+              interim += transcriptChunk;
+            }
           }
-        }
 
-        const fullDisplay = (capturedTextRef.current + ' ' + final + interim).trim();
-        if (final) {
-          capturedTextRef.current = (capturedTextRef.current + ' ' + final).trim();
-        }
+          const fullDisplay = (capturedTextRef.current + ' ' + final + interim).trim();
+          if (final) {
+            capturedTextRef.current = (capturedTextRef.current + ' ' + final).trim();
+          }
 
-        setLiveTranscript(fullDisplay);
-        setInput(fullDisplay);
-      };
+          setLiveTranscript(fullDisplay);
+          setInput(fullDisplay);
+        };
 
-      recognition.onerror = (event: any) => {
-        console.warn('Speech recognition error event:', event.error);
+        recognition.onerror = (event: any) => {
+          console.warn('Speech recognition error event:', event.error);
+          setIsListening(false);
+          if (event.error === 'network') {
+            setVoiceNetworkFailed(true);
+            setVoiceError('Chrome speech network blocked by ad-blocker/VPN. Pause ad-blocker or tap mic to retry!');
+          } else if (event.error === 'not-allowed') {
+            setVoiceError('Microphone permission needed. Allow mic access in browser address bar.');
+          } else if (event.error === 'audio-capture') {
+            setVoiceError('Microphone is busy by another app or voice keyboard. Please close active audio and tap mic.');
+          } else if (event.error !== 'aborted') {
+            setVoiceError(`Voice note: ${event.error}. Please tap mic and speak again.`);
+          }
+        };
+
+        recognition.onend = () => {
+          setIsListening(false);
+          const finalQuery = capturedTextRef.current.trim();
+          capturedTextRef.current = '';
+          if (finalQuery) {
+            handleSend(finalQuery, true);
+          }
+        };
+
+        recognition.start();
+      } catch (err: any) {
+        console.error('Speech recognition exception:', err);
         setIsListening(false);
-        if (event.error === 'network') {
-          setVoiceNetworkFailed(true);
-          setVoiceError('Chrome speech network blocked by ad-blocker/VPN. Pause ad-blocker or tap mic to retry!');
-        } else if (event.error === 'not-allowed') {
-          setVoiceError('Microphone permission needed. Allow mic access in browser address bar.');
-        } else if (event.error !== 'aborted') {
-          setVoiceError(`Voice note: ${event.error}. Please tap mic and speak again.`);
-        }
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-        const finalQuery = capturedTextRef.current.trim();
-        capturedTextRef.current = '';
-        if (finalQuery) {
-          handleSend(finalQuery, true);
-        }
-      };
-
-      recognition.start();
-    } catch (err: any) {
-      console.error('Speech recognition exception:', err);
-      setIsListening(false);
-      setVoiceError('Could not start voice recognition. Please try again.');
-    }
+        setVoiceError('Could not start voice recognition. Please try again.');
+      }
+    }, 150);
   };
 
   const speakLastMessage = () => {
