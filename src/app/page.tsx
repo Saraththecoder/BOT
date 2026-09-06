@@ -6,7 +6,6 @@ import gsap from 'gsap';
 import { 
   HiSun, 
   HiMoon, 
-  HiMicrophone, 
   HiPaperClip, 
   HiPaperAirplane, 
   HiMiniLightBulb, 
@@ -18,8 +17,6 @@ import {
   HiBuildingOffice2, 
   HiAcademicCap, 
   HiArrowTopRightOnSquare, 
-  HiSpeakerWave, 
-  HiSpeakerXMark, 
   HiPlusCircle, 
   HiArrowLeft
 } from 'react-icons/hi2';
@@ -41,21 +38,10 @@ export default function Home() {
   const [hasStartedChat, setHasStartedChat] = useState(false);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isListening, setIsListening] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [liveTranscript, setLiveTranscript] = useState('');
-  const [voiceError, setVoiceError] = useState<string | null>(null);
-  const [voiceNetworkFailed, setVoiceNetworkFailed] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
 
   const [sessionId] = useState(() => Math.random().toString(36).substring(7));
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<any>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const capturedTextRef = useRef('');
   const heroContainerRef = useRef<HTMLDivElement>(null);
 
   // Sync Theme state on initial load
@@ -126,15 +112,13 @@ export default function Home() {
   }, [messages, isLoading, hasStartedChat]);
 
   // Main Handle Send Query
-  const handleSend = async (text: string, isVoice: boolean = false) => {
+  const handleSend = async (text: string) => {
     if (!text.trim()) return;
 
     setHasStartedChat(true);
     const userMsg: Message = { role: 'user', content: text };
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
-    setLiveTranscript('');
-    capturedTextRef.current = '';
     setIsLoading(true);
 
     const newMessages = [...messages, userMsg];
@@ -178,16 +162,6 @@ export default function Home() {
         }
       }
 
-      if (isVoice && assistantContent && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(assistantContent.replace(/[*#_`]/g, ''));
-        utterance.rate = 1.0;
-        utterance.pitch = 1.0;
-        utterance.onend = () => setIsSpeaking(false);
-        utterance.onerror = () => setIsSpeaking(false);
-        setIsSpeaking(true);
-        window.speechSynthesis.speak(utterance);
-      }
-
     } catch (error) {
       console.error('Error fetching stream:', error);
       setMessages((prev) => [
@@ -199,156 +173,9 @@ export default function Home() {
     }
   };
 
-  // Toggle AI Voice Recording using standard MediaRecorder & Gemini Audio API
-  const toggleVoiceListen = async () => {
-    setVoiceError(null);
-
-    // Stop recording if currently recording
-    if (isListening && mediaRecorderRef.current) {
-      try {
-        if (mediaRecorderRef.current.state !== 'inactive') {
-          mediaRecorderRef.current.stop();
-        }
-      } catch (e) {
-        console.warn('Error stopping MediaRecorder:', e);
-      }
-      return;
-    }
-
-    if (typeof window === 'undefined') return;
-
-    // Stop any active speech synthesis output before recording
-    if ('speechSynthesis' in window) {
-      try { window.speechSynthesis.cancel(); } catch (e) {}
-      setIsSpeaking(false);
-    }
-
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setVoiceError('Voice recording is not supported in this browser.');
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaStreamRef.current = stream;
-      audioChunksRef.current = [];
-
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm')
-        ? 'audio/webm'
-        : MediaRecorder.isTypeSupported('audio/mp4')
-        ? 'audio/mp4'
-        : '';
-
-      const options = mimeType ? { mimeType } : undefined;
-      const mediaRecorder = new MediaRecorder(stream, options);
-      mediaRecorderRef.current = mediaRecorder;
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        setIsListening(false);
-        // Turn off browser microphone hardware light immediately
-        if (mediaStreamRef.current) {
-          mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-          mediaStreamRef.current = null;
-        }
-
-        const audioBlob = new Blob(audioChunksRef.current, {
-          type: mediaRecorder.mimeType || 'audio/webm',
-        });
-
-        if (audioBlob.size < 500) {
-          return;
-        }
-
-        setIsTranscribing(true);
-        try {
-          const reader = new FileReader();
-          reader.readAsDataURL(audioBlob);
-          reader.onloadend = async () => {
-            const base64Data = (reader.result as string).split(',')[1];
-            if (!base64Data) {
-              setIsTranscribing(false);
-              return;
-            }
-
-            const res = await fetch('/api/transcribe', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                audio: base64Data,
-                mimeType: audioBlob.type,
-              }),
-            });
-
-            const data = await res.json();
-            setIsTranscribing(false);
-
-            if (data.transcript && data.transcript.trim()) {
-              const query = data.transcript.trim();
-              setInput(query);
-              handleSend(query, true);
-            } else {
-              setVoiceError('No clear speech detected. Please tap mic and speak again.');
-            }
-          };
-        } catch (err: any) {
-          console.error('Voice transcription failed:', err);
-          setIsTranscribing(false);
-          setVoiceError('Voice processing failed. Please try typing your query.');
-        }
-      };
-
-      mediaRecorder.start(200);
-      setIsListening(true);
-      setLiveTranscript('🔴 Recording voice note... Tap mic when finished.');
-    } catch (err: any) {
-      console.error('Microphone access error:', err);
-      setIsListening(false);
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setVoiceError('Microphone permission needed. Please allow mic access in your browser bar.');
-      } else {
-        setVoiceError('Could not access microphone. Please check your browser audio settings.');
-      }
-    }
-  };
-
-  const speakLastMessage = () => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    
-    if (isSpeaking) {
-      window.speechSynthesis.cancel();
-      setIsSpeaking(false);
-      return;
-    }
-
-    const lastMsg = [...messages].reverse().find(m => m.role === 'assistant');
-    if (!lastMsg || !lastMsg.content) return;
-
-    const utterance = new SpeechSynthesisUtterance(lastMsg.content.replace(/[*#_`]/g, ''));
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-
-    setIsSpeaking(true);
-    window.speechSynthesis.speak(utterance);
-  };
-
   // Reset Conversation back to initial Hero Hub
   const resetToHero = () => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
-    setIsSpeaking(false);
     setHasStartedChat(false);
-    setLiveTranscript('');
-    setVoiceError(null);
-    setVoiceNetworkFailed(false);
     setMessages([]);
   };
 
@@ -423,19 +250,7 @@ export default function Home() {
                   </button>
                 )}
 
-                {hasStartedChat && (
-                  <button
-                    onClick={speakLastMessage}
-                    className={`p-2 sm:p-2.5 rounded-full border transition-all cursor-pointer ${
-                      isSpeaking 
-                        ? 'bg-amber-500 text-white border-amber-600 animate-pulse shadow-md' 
-                        : 'bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                    }`}
-                    title={isSpeaking ? 'Stop Audio Readout' : 'Read Latest Response Aloud'}
-                  >
-                    {isSpeaking ? <HiSpeakerXMark size={16} /> : <HiSpeakerWave size={16} />}
-                  </button>
-                )}
+
 
                 <button
                   onClick={() => setShowInfoModal(!showInfoModal)}
@@ -516,15 +331,15 @@ export default function Home() {
 
                   {/* Main Display Title */}
                   <h1 className="gsap-animate font-display text-4xl sm:text-7xl md:text-8xl font-normal tracking-tight mb-2 sm:mb-3 relative z-10 drop-shadow-xs text-[var(--text-primary)]">
-                    Just talk to it.
+                    Ask anything about AITS.
                   </h1>
 
                   {/* Subtitle */}
                   <p className="gsap-animate text-sm sm:text-base md:text-xl max-w-xl mx-auto font-normal mb-6 sm:mb-8 px-2 relative z-10 text-[var(--text-secondary)]">
-                    Ask anything. Admissions, EAPCET cutoffs, courses, or campus life.
+                    Admissions, EAPCET cutoffs, courses, fees, and campus placements.
                   </p>
 
-                  {/* Central Voice Button Hub */}
+                  {/* Central Logo Button Hub */}
                   <div className="gsap-animate relative mb-8 sm:mb-10 flex flex-col items-center justify-center z-10">
                     <div className="relative w-32 h-32 sm:w-36 sm:h-36 flex items-center justify-center">
                       <div className="absolute inset-0 rounded-full border border-[var(--border-subtle)] animate-pulse-ring" />
@@ -532,48 +347,22 @@ export default function Home() {
                       <div className="absolute inset-5 rounded-full opacity-70 bg-[var(--bg-hover)]" />
 
                       <button
-                        onClick={toggleVoiceListen}
+                        onClick={() => {
+                          const inputEl = document.querySelector('form input[type="text"]') as HTMLInputElement;
+                          inputEl?.focus();
+                        }}
                         onMouseMove={handleMagneticMove}
                         onMouseLeave={handleMagneticLeave}
-                        className={`relative z-10 w-20 h-20 sm:w-22 sm:h-22 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 cursor-pointer ${
-                          isListening
-                            ? 'bg-red-500 text-white scale-105 animate-pulse shadow-red-500/40'
-                            : 'bg-[#2b5944] hover:bg-[#224736] text-white hover:scale-105 shadow-[#2b5944]/30'
-                        }`}
-                        title={isListening ? 'Listening...' : 'Tap to start talking'}
+                        className="relative z-10 w-20 h-20 sm:w-22 sm:h-22 rounded-full bg-[#2b5944] hover:bg-[#224736] text-white flex items-center justify-center shadow-2xl transition-all duration-300 cursor-pointer hover:scale-105 shadow-[#2b5944]/30"
+                        title="Start asking questions"
                       >
-                        {isListening ? (
-                          <div className="flex items-center gap-1">
-                            <div className="w-1 bg-white animate-bar-1 rounded-full" />
-                            <div className="w-1 bg-white animate-bar-2 rounded-full" />
-                            <div className="w-1 bg-white animate-bar-3 rounded-full" />
-                            <div className="w-1 bg-white animate-bar-4 rounded-full" />
-                          </div>
-                        ) : (
-                          <HiMicrophone size={34} className="text-white" />
-                        )}
+                        <img src="/logo.png" alt="AITS Logo" className="w-11 h-11 object-contain" />
                       </button>
                     </div>
 
-                    <p className={`text-xs md:text-sm font-medium max-w-md mx-auto mt-3 transition-colors ${voiceError ? 'text-red-500 font-semibold' : 'text-[var(--text-secondary)]'}`}>
-                      {isListening 
-                        ? (liveTranscript ? `Listening: "${liveTranscript}"` : 'Listening... Speak your question now') 
-                        : (voiceError || 'Tap to start talking')}
+                    <p className="text-xs md:text-sm font-medium text-[var(--text-secondary)] max-w-md mx-auto mt-3">
+                      Type your question below to start chatting
                     </p>
-
-                    {isListening && (
-                      <button
-                        onClick={() => {
-                          if (recognitionRef.current) {
-                            try { recognitionRef.current.stop(); } catch (e) {}
-                          }
-                        }}
-                        className="mt-3 px-4 py-1.5 rounded-full bg-red-600 text-white text-xs font-semibold shadow-md hover:bg-red-700 transition-all cursor-pointer flex items-center gap-1.5"
-                      >
-                        <HiPaperAirplane size={13} />
-                        <span>Done Speaking — Send Query</span>
-                      </button>
-                    )}
                   </div>
 
                   {/* Quick Action Suggestion Chips */}
@@ -583,10 +372,10 @@ export default function Home() {
                       return (
                         <button
                           key={idx}
-                          onClick={() => handleSend(action.prompt, true)}
+                          onClick={() => handleSend(action.prompt)}
                           onMouseMove={handleMagneticMove}
                           onMouseLeave={handleMagneticLeave}
-                          className="flex items-center gap-2 px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-full border bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] text-[11px] sm:text-xs font-medium shadow-xs hover:border-[var(--brand-green)] hover:bg-[var(--bg-hover)] transition-all duration-200 cursor-pointer"
+                          className="flex items-center gap-2 px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-card)]/80 backdrop-blur-md text-[var(--text-primary)] text-[11px] sm:text-xs font-medium shadow-md hover:border-[var(--brand-green)] hover:bg-[var(--brand-green)]/10 hover:shadow-[0_0_15px_rgba(43,89,68,0.15)] transition-all duration-300 cursor-pointer"
                         >
                           <Icon size={15} className="text-[var(--brand-green)]" />
                           <span>{action.label}</span>
@@ -647,34 +436,6 @@ export default function Home() {
                 </motion.div>
               )}
 
-              {/* Live Voice Status Indicator */}
-              {(isListening || isTranscribing || voiceError) && (
-                <div className="w-full max-w-2xl px-4 py-1.5 mb-1 flex items-center justify-between text-xs rounded-full bg-[var(--bg-card)] border border-[var(--border-subtle)] shadow-xs">
-                  <div className="flex items-center gap-2">
-                    {isListening && (
-                      <>
-                        <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
-                        <span className="font-semibold text-red-500 animate-pulse">🔴 Recording voice... Tap mic when done</span>
-                      </>
-                    )}
-                    {isTranscribing && (
-                      <>
-                        <CgSpinner size={14} className="animate-spin text-[var(--brand-green)]" />
-                        <span className="font-medium text-[var(--brand-green)]">Transcribing voice with Gemini AI...</span>
-                      </>
-                    )}
-                    {voiceError && !isListening && !isTranscribing && (
-                      <span className="text-amber-500 font-medium">{voiceError}</span>
-                    )}
-                  </div>
-                  {voiceError && (
-                    <button onClick={() => setVoiceError(null)} className="text-[10px] underline text-[var(--text-muted)] hover:text-[var(--text-primary)]">
-                      Dismiss
-                    </button>
-                  )}
-                </div>
-              )}
-
               {/* ----------------- PINNED INPUT BAR ----------------- */}
               <form
                 onSubmit={handleSubmit}
@@ -693,30 +454,14 @@ export default function Home() {
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder={isListening ? "Listening to your voice..." : isTranscribing ? "Transcribing speech..." : "Type a message..."}
+                  placeholder="Type a message..."
                   className="flex-1 bg-transparent border-none outline-none px-2.5 sm:px-3 text-xs sm:text-sm md:text-base text-[var(--text-primary)] placeholder-[var(--text-muted)]"
-                  disabled={isLoading || isTranscribing}
+                  disabled={isLoading}
                 />
 
                 <button
-                  type="button"
-                  onClick={toggleVoiceListen}
-                  disabled={isTranscribing}
-                  className={`p-1.5 sm:p-2 rounded-full transition-colors cursor-pointer mr-1 ${
-                    isListening
-                      ? 'bg-red-500 text-white animate-pulse'
-                      : isTranscribing
-                      ? 'bg-amber-500 text-white animate-spin opacity-80'
-                      : 'text-[var(--text-muted)] hover:text-[var(--brand-green)]'
-                  }`}
-                  title={isListening ? 'Stop & send voice' : isTranscribing ? 'Transcribing...' : 'Record voice note'}
-                >
-                  {isTranscribing ? <CgSpinner size={18} className="animate-spin" /> : <HiMicrophone size={18} />}
-                </button>
-
-                <button
                   type="submit"
-                  disabled={!input.trim() || isLoading || isTranscribing}
+                  disabled={!input.trim() || isLoading}
                   className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-[#2b5944] hover:bg-[#224736] disabled:opacity-30 text-white flex items-center justify-center transition-all cursor-pointer shadow-md shrink-0"
                 >
                   <HiPaperAirplane size={16} />
