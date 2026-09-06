@@ -195,8 +195,8 @@ export default function Home() {
     }
   };
 
-  // Toggle Speech Recognition with Alternate Voice Audio Fallback
-  const toggleVoiceListen = () => {
+  // Toggle Hardware-Activated Speech Recognition Dictation
+  const toggleVoiceListen = async () => {
     setVoiceError(null);
 
     if (isListening) {
@@ -209,19 +209,32 @@ export default function Home() {
 
     if (typeof window === 'undefined') return;
 
+    // Request Hardware Mic Permissions First to activate device audio stream
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        setTimeout(() => {
+          stream.getTracks().forEach(t => t.stop());
+        }, 8000);
+      }
+    } catch (micErr) {
+      console.warn('Microphone permission warning:', micErr);
+      setVoiceError('Microphone permission needed. Allow mic access in your browser address bar.');
+      return;
+    }
+
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      setVoiceNetworkFailed(true);
-      setVoiceError('Tap any sample query below for instant spoken voice responses!');
+      setVoiceError('Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.');
       return;
     }
 
     try {
       const recognition = new SpeechRecognition();
       recognitionRef.current = recognition;
-      recognition.continuous = true;
+      recognition.continuous = false; // Single-phrase mode avoids Chrome network streaming dropouts
       recognition.interimResults = true;
       recognition.lang = 'en-US';
 
@@ -255,15 +268,15 @@ export default function Home() {
       };
 
       recognition.onerror = (event: any) => {
-        console.warn('Speech recognition notice:', event.error);
+        console.warn('Speech recognition error event:', event.error);
         setIsListening(false);
         if (event.error === 'network') {
           setVoiceNetworkFailed(true);
-          setVoiceError('Cloud speech dictation blocked. Alternate Voice Mode active!');
+          setVoiceError('Chrome speech network blocked by ad-blocker/VPN. Pause ad-blocker or tap mic to retry!');
         } else if (event.error === 'not-allowed') {
-          setVoiceError('Microphone permission needed. Allow mic access in browser bar.');
+          setVoiceError('Microphone permission needed. Allow mic access in browser address bar.');
         } else if (event.error !== 'aborted') {
-          setVoiceError('Tap any quick question below for spoken Voice Assistant!');
+          setVoiceError(`Voice note: ${event.error}. Please tap mic and speak again.`);
         }
       };
 
@@ -280,8 +293,7 @@ export default function Home() {
     } catch (err: any) {
       console.error('Speech recognition exception:', err);
       setIsListening(false);
-      setVoiceNetworkFailed(true);
-      setVoiceError('Alternate Voice Mode active — Tap any prompt for spoken audio!');
+      setVoiceError('Could not start voice recognition. Please try again.');
     }
   };
 
@@ -523,7 +535,7 @@ export default function Home() {
                       </button>
                     </div>
 
-                    <p className={`text-xs md:text-sm font-medium max-w-md mx-auto mt-3 transition-colors ${voiceError ? 'text-[#2b5944] dark:text-[#529d78] font-semibold' : 'text-[var(--text-secondary)]'}`}>
+                    <p className={`text-xs md:text-sm font-medium max-w-md mx-auto mt-3 transition-colors ${voiceError ? 'text-red-500 font-semibold' : 'text-[var(--text-secondary)]'}`}>
                       {isListening 
                         ? (liveTranscript ? `Listening: "${liveTranscript}"` : 'Listening... Speak your question now') 
                         : (voiceError || 'Tap to start talking')}
@@ -542,31 +554,6 @@ export default function Home() {
                         <span>Done Speaking — Send Query</span>
                       </button>
                     )}
-
-                    {/* Alternate Voice Audio Mode Options (Sleek, No Ugly Brown Boxes) */}
-                    {voiceNetworkFailed && (
-                      <div className="mt-4 flex flex-col items-center gap-2.5 max-w-lg w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] p-4 rounded-2xl shadow-sm text-center">
-                        <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--brand-green)]">
-                          <HiSpeakerWave size={16} />
-                          <span>Alternate Spoken Voice Audio Active</span>
-                        </div>
-                        <p className="text-[11px] text-[var(--text-secondary)]">
-                          Tap any question below for instant spoken AI voice response:
-                        </p>
-                        <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
-                          {QUICK_ACTIONS.map((action, idx) => (
-                            <button
-                              key={idx}
-                              onClick={() => handleSend(action.prompt, true)}
-                              className="px-3 py-1.5 rounded-full bg-[var(--bg-hover)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-xs font-medium hover:border-[var(--brand-green)] transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
-                            >
-                              <HiSpeakerWave size={13} className="text-[var(--brand-green)]" />
-                              <span>{action.label}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   </div>
 
                   {/* Quick Action Suggestion Chips */}
@@ -576,7 +563,7 @@ export default function Home() {
                       return (
                         <button
                           key={idx}
-                          onClick={() => handleSend(action.prompt)}
+                          onClick={() => handleSend(action.prompt, true)}
                           onMouseMove={handleMagneticMove}
                           onMouseLeave={handleMagneticLeave}
                           className="flex items-center gap-2 px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-full border bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] text-[11px] sm:text-xs font-medium shadow-xs hover:border-[var(--brand-green)] hover:bg-[var(--bg-hover)] transition-all duration-200 cursor-pointer"
