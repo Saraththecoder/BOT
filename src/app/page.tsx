@@ -215,19 +215,6 @@ export default function Home() {
       setIsSpeaking(false);
     }
 
-    // Request Hardware Mic Permissions First, then immediately release track so Chrome is not actively recording when Speech Recognition starts
-    try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        // Crucial for Android / Mobile Chrome: stop tracks immediately so hardware mic is freed for Google Speech Service
-        stream.getTracks().forEach(t => t.stop());
-      }
-    } catch (micErr) {
-      console.warn('Microphone permission warning:', micErr);
-      setVoiceError('Microphone permission needed. Allow mic access in your browser address bar.');
-      return;
-    }
-
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
