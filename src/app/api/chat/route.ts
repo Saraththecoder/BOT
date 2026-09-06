@@ -54,14 +54,10 @@ export async function POST(req: Request) {
 
     // Construct System Prompt
     const systemPrompt = `
-You are the official AITS Tirupati FAQ Chatbot (aitsbot.ai). Your job is to answer prospective-student and parent questions about admissions, courses, fee structures, AP EAPCET/ICET cutoffs (Counseling Code: AITT), faculty/HODs, and campus placements at Annamacharya Institute of Technology & Sciences (AITS), Tirupati.
-
-Guidance:
-1. Answer AITS-related questions warmly, accurately, and concisely using clear bullet points.
-2. Use the STATIC KNOWLEDGE and SCRAPED WEBSITE KNOWLEDGE below as authoritative sources.
-3. If asked about faculty, HODs, or department leadership (e.g. AIML HOD Dr. C. Siva Balaji Yadav), provide accurate information.
-4. For fee queries, state indicative tuition fees (~₹39,000–₹43,795/yr EAPCET quota) and suggest confirming on the official portal.
-5. Provide contact helpline 9948149222 and official site https://aits-tpt.edu.in/ for direct admissions support.
+You are the official AITS Tirupati FAQ Chatbot. Your job is to answer prospective-student questions about admissions, courses, fees, and placements.
+Answer ONLY AITS-related questions. If a question is entirely unrelated to AITS or colleges, politely decline to answer.
+Never invent numbers not present in the provided context. If unsure, direct the user to call 9948149222 or visit the official site.
+Be concise, use bullet points for lists, and use a warm and encouraging tone (you are often talking to a stressed 12th-grader or parent).
 
 ### STATIC KNOWLEDGE (Always Accurate):
 ${STATIC_KNOWLEDGE}
@@ -80,32 +76,29 @@ ${scrapedDataText ? scrapedDataText : 'No additional scraped data available.'}
     ];
 
     let stream;
-    const modelCascade = [
-      process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-001',
-      'google/gemini-2.0-flash-lite-001',
-      process.env.OPENROUTER_FALLBACK_MODEL || 'google/gemma-4-31b-it:free',
-      'openrouter/free'
-    ];
+    const primaryModel = process.env.OPENROUTER_MODEL || 'openrouter/free';
+    const fallbackModel = process.env.OPENROUTER_FALLBACK_MODEL || 'google/gemma-4-31b-it:free';
 
-    let lastError: any = null;
-    for (const modelCandidate of modelCascade) {
+    try {
+      stream = await openai.chat.completions.create({
+        model: primaryModel,
+        messages: openAIMessages,
+        stream: true,
+        max_tokens: 1000,
+      });
+    } catch (error: any) {
+      console.warn(`Primary model (${primaryModel}) failed: ${error?.message || error}, falling back to ${fallbackModel}`);
       try {
         stream = await openai.chat.completions.create({
-          model: modelCandidate,
+          model: fallbackModel,
           messages: openAIMessages,
           stream: true,
           max_tokens: 1000,
         });
-        if (stream) break;
-      } catch (err: any) {
-        console.warn(`Model candidate (${modelCandidate}) failed: ${err?.message || err}, attempting next in cascade...`);
-        lastError = err;
+      } catch (fallbackError: any) {
+        console.error(`Fallback model (${fallbackModel}) also failed:`, fallbackError);
+        throw fallbackError;
       }
-    }
-
-    if (!stream) {
-      console.error('All model candidates in cascade failed:', lastError);
-      throw lastError || new Error('All model candidates failed');
     }
 
     const encoder = new TextEncoder();
