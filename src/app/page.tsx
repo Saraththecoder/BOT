@@ -195,7 +195,7 @@ export default function Home() {
     }
   };
 
-  // Toggle Continuous Speech Recognition Dictation
+  // Toggle Speech Recognition with Alternate Voice Audio Fallback
   const toggleVoiceListen = () => {
     setVoiceError(null);
 
@@ -213,7 +213,8 @@ export default function Home() {
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      setVoiceError('Voice dictation is not supported in this browser. Please use Chrome, Edge, or Safari.');
+      setVoiceNetworkFailed(true);
+      setVoiceError('Tap any sample query below for instant spoken voice responses!');
       return;
     }
 
@@ -254,17 +255,15 @@ export default function Home() {
       };
 
       recognition.onerror = (event: any) => {
-        console.warn('Speech recognition error event:', event.error);
+        console.warn('Speech recognition notice:', event.error);
         setIsListening(false);
         if (event.error === 'network') {
           setVoiceNetworkFailed(true);
-          setVoiceError('Cloud speech network blocked by browser/network. Tap any prompt below to test Voice Audio!');
+          setVoiceError('Cloud speech dictation blocked. Alternate Voice Mode active!');
         } else if (event.error === 'not-allowed') {
-          setVoiceError('Microphone access blocked. Click the mic icon in your address bar to allow mic access.');
-        } else if (event.error === 'no-speech') {
-          setVoiceError('No speech detected. Tap mic again and speak clearly.');
+          setVoiceError('Microphone permission needed. Allow mic access in browser bar.');
         } else if (event.error !== 'aborted') {
-          setVoiceError(`Voice notice: ${event.error}. Please try again.`);
+          setVoiceError('Tap any quick question below for spoken Voice Assistant!');
         }
       };
 
@@ -281,7 +280,8 @@ export default function Home() {
     } catch (err: any) {
       console.error('Speech recognition exception:', err);
       setIsListening(false);
-      setVoiceError('Could not start voice recognition. Please try typing your question.');
+      setVoiceNetworkFailed(true);
+      setVoiceError('Alternate Voice Mode active — Tap any prompt for spoken audio!');
     }
   };
 
@@ -316,6 +316,7 @@ export default function Home() {
     setHasStartedChat(false);
     setLiveTranscript('');
     setVoiceError(null);
+    setVoiceNetworkFailed(false);
     setMessages([]);
   };
 
@@ -522,7 +523,7 @@ export default function Home() {
                       </button>
                     </div>
 
-                    <p className={`text-xs md:text-sm font-medium max-w-md mx-auto mt-3 transition-colors ${voiceError ? 'text-red-500 font-semibold' : 'text-[var(--text-secondary)]'}`}>
+                    <p className={`text-xs md:text-sm font-medium max-w-md mx-auto mt-3 transition-colors ${voiceError ? 'text-[#2b5944] dark:text-[#529d78] font-semibold' : 'text-[var(--text-secondary)]'}`}>
                       {isListening 
                         ? (liveTranscript ? `Listening: "${liveTranscript}"` : 'Listening... Speak your question now') 
                         : (voiceError || 'Tap to start talking')}
@@ -542,20 +543,27 @@ export default function Home() {
                       </button>
                     )}
 
+                    {/* Alternate Voice Audio Mode Options (Sleek, No Ugly Brown Boxes) */}
                     {voiceNetworkFailed && (
-                      <div className="mt-4 flex flex-col items-center gap-3 max-w-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 p-4 rounded-2xl shadow-sm">
-                        <p className="text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
-                          <strong>Why this notice appears:</strong> In Chromium browsers, live speech recognition connects to Google speech servers. If an ad-blocker, VPN, or network policy blocks Google speech services, Chrome returns a network notice.
+                      <div className="mt-4 flex flex-col items-center gap-2.5 max-w-lg w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] p-4 rounded-2xl shadow-sm text-center">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--brand-green)]">
+                          <HiSpeakerWave size={16} />
+                          <span>Alternate Spoken Voice Audio Active</span>
+                        </div>
+                        <p className="text-[11px] text-[var(--text-secondary)]">
+                          Tap any question below for instant spoken AI voice response:
                         </p>
-
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={toggleVoiceListen}
-                            className="px-3.5 py-1.5 rounded-full bg-[#2b5944] text-white text-xs font-semibold hover:bg-[#224736] transition-all cursor-pointer flex items-center gap-1.5"
-                          >
-                            <HiMicrophone size={14} />
-                            <span>Retry Microphone</span>
-                          </button>
+                        <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
+                          {QUICK_ACTIONS.map((action, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => handleSend(action.prompt, true)}
+                              className="px-3 py-1.5 rounded-full bg-[var(--bg-hover)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-xs font-medium hover:border-[var(--brand-green)] transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
+                            >
+                              <HiSpeakerWave size={13} className="text-[var(--brand-green)]" />
+                              <span>{action.label}</span>
+                            </button>
+                          ))}
                         </div>
                       </div>
                     )}
